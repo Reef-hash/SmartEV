@@ -59,6 +59,74 @@ function splitMaterialLabel(label) {
   return { material: raw, size: "" };
 }
 
+// ======= AUTH helpers (Supabase) =======
+var ACTION_ROLES = {
+  getMaterials: 'staff', getSizesByMaterial: 'staff', getBalanceByMaterial: 'staff',
+  getStock: 'staff', getUsageHistory: 'staff', usage: 'staff',
+  restock: 'storekeeper', telegram: 'admin'
+};
+
+var ROLE_RANK = { staff: 1, storekeeper: 2, admin: 3 };
+
+function getScriptProp(name) {
+  return PropertiesService.getScriptProperties().getProperty(name);
+}
+
+function getCaller(accessToken) {
+  if (!accessToken) return null;
+  try {
+    var cache = CacheService.getScriptCache();
+    var key = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, accessToken, Utilities.Charset.UTF_8);
+    var cacheKey = 'access_' + key.map(function(b){return (b+256)%256}).join('');
+    var cached = cache.get(cacheKey);
+    if (cached) return JSON.parse(cached);
+
+    var supaUrl = getScriptProp('SUPABASE_URL');
+    var supaKey = getScriptProp('SUPABASE_PUBLISHABLE_KEY');
+    if (!supaUrl || !supaKey) {
+      console.log('Supabase props not set');
+      return null;
+    }
+
+    var url = supaUrl.replace(/\/$/, '') + '/rest/v1/rpc/get_my_access';
+    var options = {
+      method: 'post',
+      muteHttpExceptions: true,
+      headers: {
+        'apikey': supaKey,
+        'Authorization': 'Bearer ' + accessToken,
+        'Content-Type': 'application/json'
+      }
+    };
+
+    var resp = UrlFetchApp.fetch(url, options);
+    var code = resp.getResponseCode();
+    if (code === 401) return null;
+    if (code >= 400) {
+      console.log('getCaller error code', code, resp.getContentText());
+      return null;
+    }
+
+    var body = resp.getContentText();
+    var obj = JSON.parse(body);
+    var caller = Array.isArray(obj) && obj.length ? obj[0] : obj;
+    try { cache.put(cacheKey, JSON.stringify(caller), 300); } catch (e) {}
+    return caller;
+  } catch (err) {
+    console.log('getCaller exception: ' + err.message);
+    return null;
+  }
+}
+
+function checkActionAllowed(action, caller) {
+  var minRole = ACTION_ROLES[action] || 'staff';
+  if (!caller || !caller.status || caller.status !== 'active') return false;
+  var rankCaller = ROLE_RANK[caller.role] || 0;
+  var rankMin = ROLE_RANK[minRole] || 0;
+  return rankCaller >= rankMin;
+}
+
+
 // ======================
 // doGet
 // ======================
@@ -209,12 +277,24 @@ function doGet(e) {
 function doPost(e) {
   try {
     var type = e.parameter.type || "";
+    var access_token = (e.parameter && e.parameter.access_token) || '';
+    var authMode = getScriptProp('AUTH_MODE') || 'off';
+    var caller = null;
+    if (authMode !== 'off') {
+      caller = getCaller(access_token);
+      if (!caller && authMode === 'enforce') {
+        return ContentService.createTextOutput('Error: AUTH_REQUIRED');
+      }
+    }
 
     // ==================== TELEGRAM (mesej manual dari web) ====================
     if (type === "telegram") {
       var text = (e.parameter.message || "").trim();
       if (!text) {
         return ContentService.createTextOutput("Error: Mesej kosong");
+      }
+      if (authMode !== 'off' && !checkActionAllowed('telegram', caller)) {
+        return ContentService.createTextOutput('Error: FORBIDDEN');
       }
 
       var result = sendTelegram(text, "HTML");
@@ -228,6 +308,10 @@ function doPost(e) {
       var material = (e.parameter.material || "").trim();
       var kuantiti = Number(e.parameter.kuantiti) || 0;
       var targetSize = (e.parameter.saiz || "").trim();
+
+      if (authMode !== 'off' && !checkActionAllowed('restock', caller)) {
+        return ContentService.createTextOutput('Error: FORBIDDEN');
+      }
 
       if (!material || kuantiti <= 0) {
         return ContentService.createTextOutput("Error: Data restock tidak lengkap");
@@ -267,6 +351,10 @@ function doPost(e) {
     var nama    = (e.parameter.nama || "").trim();
     var tujuan  = (e.parameter.tujuan || "").trim();
     var itemsJson = e.parameter.items;
+
+    if (authMode !== 'off' && !checkActionAllowed('usage', caller)) {
+      return ContentService.createTextOutput('Error: FORBIDDEN');
+    }
 
     if (!nama) return ContentService.createTextOutput("Error: Nama peminjam diperlukan");
     if (!itemsJson) return ContentService.createTextOutput("Error: Tiada barang dipilih");

@@ -72,14 +72,17 @@ A material can have several rows in `Stock`, one per size (column F).
 | Variable | Where | Notes |
 | --- | --- | --- |
 | `VITE_API_URL` | `.env.local` (git-ignored), Vercel env vars, or GitHub Actions variable | Apps Script `/exec` URL. Baked into the public bundle at build time, so never a secret. |
+| `VITE_SUPABASE_URL` | same | Supabase project URL. Public by design; see [plans/login-supabase.md](plans/login-supabase.md). |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | same | Supabase publishable (anon) key. Public by design, never the `service_role` key. |
 
 - `.env.example` is the committed template.
-- **Vercel** (intended host): Vite preset, set `VITE_API_URL`, redeploy after changing it. No rewrites needed because navigation is hash-based.
+- **Vercel** (intended host): Vite preset, set `VITE_API_URL` plus the two Supabase vars above, redeploy after changing any of them. No rewrites needed because navigation is hash-based.
 - **GitHub Pages** (alternative): `.github/workflows/deploy-pages.yml`; `vite.config.js` sets `base` to `/<repo>/` only when running in GitHub Actions.
 
 ## Known issues / pending
 
-- `backend/stock.gs` changes (new `getStock`, Telegram via Script Properties, column E fix) must be deployed to Apps Script before the Stock page and Telegram page work in production.
+- Login/roles (Supabase) is in progress but not deployed: migration not yet run, backend not yet redeployed with the auth check, `AUTH_MODE` stays `off` until then. See [plans/login-supabase.md](plans/login-supabase.md) for the exact handoff steps.
+- `backend/stock.gs` changes (new `getStock`, Telegram via Script Properties, column E fix, auth check) must be deployed to Apps Script before the Stock page, Telegram page, and login work in production.
 - Telegram bot tokens that were committed in the original repos must be revoked with @BotFather.
 - A multi-item usage POST writes rows one at a time. If a later item fails (not found or not enough stock), earlier items are already saved.
 - The old MATERIAL-USAGE and RESTOCK sites still call the same backend.

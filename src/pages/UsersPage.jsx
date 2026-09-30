@@ -1,78 +1,147 @@
 import { useEffect, useState } from 'react'
-import { supabase } from '../lib/supabase'
-import useAuth from '../auth/useAuth'
-import { hasRole } from '../auth/permissions'
+import { supabase } from '../lib/supabase.js'
+import useAuth from '../auth/useAuth.js'
+import StatusMessage from '../components/StatusMessage.jsx'
 
-export default function UsersPage() {
+const STATUS_BADGE = {
+  active: 'bg-emerald-100 text-emerald-700',
+  pending: 'bg-amber-100 text-amber-700',
+  disabled: 'bg-rose-100 text-rose-700',
+}
+
+function UsersPage({ theme }) {
   const { profile } = useAuth()
   const [users, setUsers] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(true)
+  const [status, setStatus] = useState({ type: 'idle', message: '' })
 
   async function fetchProfiles() {
-    setLoading(true)
-    const { data, error } = await supabase.from('profiles').select('*')
+    setIsLoading(true)
+    const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: false })
     if (error) {
-      console.error('profiles fetch error', error)
+      setStatus({ type: 'error', message: `Gagal memuat senarai pengguna: ${error.message}` })
       setUsers([])
     } else {
       setUsers(data || [])
     }
-    setLoading(false)
+    setIsLoading(false)
   }
 
   useEffect(() => {
-    if (!profile) return
-    if (!hasRole(profile, 'admin')) return
-    // defer to avoid calling setState synchronously in effect
     const t = setTimeout(() => { fetchProfiles() }, 0)
     return () => clearTimeout(t)
-  }, [profile])
+  }, [])
 
-  async function setAccess(id, role, status) {
-    const { error } = await supabase.rpc('admin_set_access', { target: id, new_role: role, new_status: status })
+  async function setAccess(id, role, newStatus) {
+    const { error } = await supabase.rpc('admin_set_access', { target: id, new_role: role, new_status: newStatus })
     if (error) {
-      alert('Error: ' + error.message)
+      setStatus({ type: 'error', message: error.message })
     } else {
+      setStatus({ type: 'success', message: 'Akaun dikemaskini.' })
       fetchProfiles()
     }
   }
 
-  if (!profile) return <div className="p-4">Sila log masuk</div>
-  if (!hasRole(profile, 'admin')) return <div className="p-4">Akses ditolak</div>
+  const pending = users.filter((u) => u.status === 'pending')
+  const others = users.filter((u) => u.status !== 'pending')
 
-  return (
-    <div className="p-4">
-      <h2 className="text-xl font-bold mb-4">Pengurusan Pengguna</h2>
-      {loading ? <div>Memuat...</div> : (
-        <table className="w-full table-auto border">
-          <thead>
-            <tr className="text-left">
-              <th className="p-2">Email</th>
-              <th className="p-2">Nama</th>
-              <th className="p-2">Role</th>
-              <th className="p-2">Status</th>
-              <th className="p-2">Tindakan</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map(u => (
-              <tr key={u.id} className="border-t">
-                <td className="p-2">{u.email}</td>
-                <td className="p-2">{u.full_name}</td>
-                <td className="p-2">{u.role}</td>
-                <td className="p-2">{u.status}</td>
-                <td className="p-2">
-                  {u.status === 'pending' && (
-                    <button className="mr-2 bg-green-600 text-white px-2 py-1 rounded" onClick={() => setAccess(u.id, 'staff', 'active')}>Approve</button>
-                  )}
-                  <button className="mr-2 bg-yellow-600 text-white px-2 py-1 rounded" onClick={() => setAccess(u.id, 'storekeeper', 'active')}>Make Storekeeper</button>
-                  <button className="bg-red-600 text-white px-2 py-1 rounded" onClick={() => setAccess(u.id, u.role, 'disabled')}>Disable</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+  const rowActions = (u) => (
+    <div className="flex flex-wrap gap-2">
+      {u.status === 'pending' && (
+        <button
+          type="button"
+          onClick={() => setAccess(u.id, 'staff', 'active')}
+          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-white transition hover:bg-emerald-700"
+        >
+          Lulus (Staff)
+        </button>
+      )}
+      {u.role !== 'storekeeper' && (
+        <button
+          type="button"
+          onClick={() => setAccess(u.id, 'storekeeper', 'active')}
+          className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-white transition hover:bg-amber-600"
+        >
+          Jadikan Storekeeper
+        </button>
+      )}
+      {u.role !== 'admin' && (
+        <button
+          type="button"
+          onClick={() => setAccess(u.id, 'admin', 'active')}
+          className="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-white transition hover:bg-slate-800"
+        >
+          Jadikan Admin
+        </button>
+      )}
+      {u.id !== profile?.id && (
+        <button
+          type="button"
+          onClick={() => setAccess(u.id, u.role, u.status === 'disabled' ? 'active' : 'disabled')}
+          className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-white transition hover:bg-rose-700"
+        >
+          {u.status === 'disabled' ? 'Aktifkan' : 'Nyahaktifkan'}
+        </button>
       )}
     </div>
   )
+
+  return (
+    <div className="mx-auto max-w-4xl">
+      <div className={`rounded-3xl border p-6 shadow-2xl backdrop-blur-lg sm:p-8 ${theme.panel}`}>
+        <div className="mb-6 text-center">
+          <h2 className={`font-display text-3xl text-slate-900 ${theme.heading}`}>Pengurusan Pengguna</h2>
+          <p className="mt-2 text-sm text-slate-500">Luluskan akaun baru, ubah peranan, atau nyahaktifkan akaun.</p>
+        </div>
+
+        <StatusMessage status={status} className="mb-4 text-center" />
+
+        {isLoading ? (
+          <p className="text-center text-sm text-slate-500">Memuat...</p>
+        ) : (
+          <div className="space-y-8">
+            {pending.length > 0 && (
+              <div>
+                <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-amber-700">Menunggu Kelulusan ({pending.length})</h3>
+                <div className="space-y-3">
+                  {pending.map((u) => (
+                    <div key={u.id} className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="font-bold text-slate-900">{u.full_name || '(tiada nama)'}</p>
+                          <p className="text-sm text-slate-500">{u.email}</p>
+                        </div>
+                        <span className={`rounded-full px-3 py-1 text-xs font-bold uppercase ${STATUS_BADGE[u.status]}`}>{u.status}</span>
+                      </div>
+                      {rowActions(u)}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-700">Semua Pengguna</h3>
+              <div className="space-y-3">
+                {others.map((u) => (
+                  <div key={u.id} className="rounded-2xl border border-slate-200 bg-white/70 p-4">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="font-bold text-slate-900">{u.full_name || '(tiada nama)'}</p>
+                        <p className="text-sm text-slate-500">{u.email} &middot; {u.role}</p>
+                      </div>
+                      <span className={`rounded-full px-3 py-1 text-xs font-bold uppercase ${STATUS_BADGE[u.status]}`}>{u.status}</span>
+                    </div>
+                    {rowActions(u)}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
+
+export default UsersPage

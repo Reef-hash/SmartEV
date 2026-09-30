@@ -1,5 +1,7 @@
 // Google Apps Script web app (backend/stock.gs), set at build time from VITE_API_URL.
 // It ends up in the browser bundle, so it must never hold a secret.
+import { supabase } from './lib/supabase.js'
+
 const API_URL = import.meta.env.VITE_API_URL
 
 if (!API_URL) {
@@ -29,11 +31,14 @@ export async function apiGet(action, params = {}) {
 }
 
 // POST as form data (read by e.parameter in doPost); returns the plain-text reply.
+// access_token travels as a form field (not a header) since Apps Script can't answer CORS preflight.
 export async function apiPost(fields) {
+  const { data } = await supabase.auth.getSession()
   const body = new FormData()
   for (const [key, value] of Object.entries(fields)) {
     body.append(key, value)
   }
+  if (data.session?.access_token) body.append('access_token', data.session.access_token)
 
   const response = await fetch(getApiUrl(), { method: 'POST', body })
   return response.text()

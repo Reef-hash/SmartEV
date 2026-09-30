@@ -77,8 +77,8 @@ function normalizeHistoryRows(payload) {
     .slice(0, 40)
 }
 
-function UsagePage({ theme, materials, isLoadingMaterials, onSubmitted }) {
-  const [nama, setNama] = useState('')
+function UsagePage({ theme, materials, isLoadingMaterials, onSubmitted, defaultNama }) {
+  const [nama, setNama] = useState(defaultNama || '')
   const [tujuan, setTujuan] = useState('')
   const [items, setItems] = useState(() => [createEmptyItem()])
   const [isSubmitting, setIsSubmitting] = useState(false)

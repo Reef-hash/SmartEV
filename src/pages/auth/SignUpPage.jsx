@@ -1,41 +1,101 @@
 import { useState } from 'react'
-import { supabase } from '../../lib/supabase'
+import { supabase } from '../../lib/supabase.js'
+import StatusMessage from '../../components/StatusMessage.jsx'
 
-export default function SignUpPage() {
+function SignUpPage({ theme, onSwitchToLogin }) {
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [msg, setMsg] = useState(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [status, setStatus] = useState({ type: 'idle', message: '' })
 
-  async function handleSubmit(e) {
-    e.preventDefault()
-    setMsg(null)
-    const { error } = await supabase.auth.signUp({ email, password, options: { data: { full_name: fullName }, emailRedirectTo: window.location.origin } })
-    if (error) setMsg(error.message)
-    else setMsg('Semak emel untuk pengesahan')
+  const labelClass = 'mb-2 block text-sm font-bold uppercase tracking-wide text-slate-700'
+  const inputClass = `w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition focus:bg-white focus:ring-4 ${theme.inputFocus}`
+
+  async function handleSubmit(event) {
+    event.preventDefault()
+    if (!fullName.trim() || !email.trim() || !password) {
+      setStatus({ type: 'error', message: 'Sila lengkapkan semua ruangan.' })
+      return
+    }
+    if (password.length < 6) {
+      setStatus({ type: 'error', message: 'Kata laluan mesti sekurang-kurangnya 6 aksara.' })
+      return
+    }
+
+    setIsSubmitting(true)
+    setStatus({ type: 'idle', message: '' })
+    const { error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: { data: { full_name: fullName.trim() }, emailRedirectTo: window.location.origin },
+    })
+    if (error) setStatus({ type: 'error', message: error.message })
+    else setStatus({ type: 'success', message: 'Semak emel untuk pengesahan, kemudian log masuk.' })
+    setIsSubmitting(false)
   }
 
   return (
-    <div className="p-4 max-w-md mx-auto">
-      <h2 className="text-xl font-bold mb-4">Daftar Akaun</h2>
-      <form onSubmit={handleSubmit} className="space-y-3">
-        <div>
-          <label className="block text-sm">Nama Penuh</label>
-          <input value={fullName} onChange={e => setFullName(e.target.value)} className="w-full border rounded px-2 py-1" />
+    <div className="mx-auto max-w-md">
+      <div className={`rounded-3xl border p-6 shadow-2xl backdrop-blur-lg sm:p-8 ${theme.panel}`}>
+        <div className="mb-6 text-center">
+          <h2 className={`font-display text-3xl text-slate-900 ${theme.heading}`}>Daftar Akaun</h2>
+          <p className="mt-2 text-sm text-slate-500">Akaun baru menunggu kelulusan admin sebelum boleh digunakan.</p>
         </div>
-        <div>
-          <label className="block text-sm">Emel</label>
-          <input value={email} onChange={e => setEmail(e.target.value)} className="w-full border rounded px-2 py-1" />
-        </div>
-        <div>
-          <label className="block text-sm">Kata Laluan</label>
-          <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full border rounded px-2 py-1" />
-        </div>
-        <div>
-          <button className="bg-green-600 text-white px-4 py-2 rounded">Daftar</button>
-        </div>
-      </form>
-      {msg && <p className="mt-3">{msg}</p>}
+
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div>
+            <label htmlFor="signup-name" className={labelClass}>Nama Penuh</label>
+            <input
+              id="signup-name"
+              value={fullName}
+              onChange={(event) => setFullName(event.target.value)}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label htmlFor="signup-email" className={labelClass}>Emel</label>
+            <input
+              id="signup-email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label htmlFor="signup-password" className={labelClass}>Kata Laluan</label>
+            <input
+              id="signup-password"
+              type="password"
+              autoComplete="new-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className={inputClass}
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className={`w-full rounded-xl px-5 py-3.5 text-sm font-bold uppercase tracking-[0.16em] text-white transition disabled:cursor-not-allowed disabled:bg-slate-400 ${theme.accent}`}
+          >
+            {isSubmitting ? 'Sedang daftar...' : 'Daftar'}
+          </button>
+
+          <StatusMessage status={status} className="text-center" />
+        </form>
+
+        <p className="mt-6 text-center text-sm text-slate-500">
+          Sudah ada akaun?{' '}
+          <button type="button" onClick={onSwitchToLogin} className="font-bold text-slate-700 underline-offset-2 hover:underline">
+            Log masuk
+          </button>
+        </p>
+      </div>
     </div>
   )
 }
+
+export default SignUpPage

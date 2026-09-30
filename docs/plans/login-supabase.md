@@ -1,9 +1,22 @@
 # Plan: login and roles with Supabase
 
-**Status:** Proposed (nothing implemented yet)
+**Status:** In progress (phases 0-2 landed; `AUTH_MODE` still `off` until backend is redeployed and migration verified live)
 **Decisions made:** three roles (staff, storekeeper, admin) · open sign-up with admin approval · email + password login
 
 Read [../architecture.md](../architecture.md) first. The key fact: the Google Sheet is only reachable through the Apps Script web app, and that URL is public. **A login screen in React alone protects nothing.** The Apps Script backend must check who is calling on every request. Most of this plan is about making that check work within Apps Script's limits.
+
+## Handoff: what the owner must do next
+
+All the code for phases 0-2 is written and committed to this repo. The remaining steps need a human with Supabase and Vercel dashboard access &mdash; an agent working in this repo cannot do them.
+
+1. **Run the migration.** Supabase dashboard → **SQL Editor** → paste all of [../../supabase/migrations/0001_auth_profiles.sql](../../supabase/migrations/0001_auth_profiles.sql) → **Run**.
+2. **Redeploy the backend.** Paste the current [../../backend/stock.gs](../../backend/stock.gs) into the Apps Script project bound to the Google Sheet → **Deploy → Manage deployments** → edit (pencil) the existing deployment → **New version** → **Deploy**. This keeps the `/exec` URL unchanged. Skipping this step is why `getStock` currently fails with a CORS error locally: the live script predates the `getStock`/`getUsageHistory` handlers.
+3. **Set Apps Script Script Properties** (same project → ⚙️ Project Settings → Script Properties): `AUTH_MODE=off`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` (same public values as `.env.local`, not secrets).
+4. **Create the first admin.** Sign up once through the app, confirm the email, then in the Supabase SQL Editor: `update public.profiles set role = 'admin', status = 'active', approved_at = now() where email = '<you@example.com>';`
+5. **Vercel env vars.** Project Settings → Environment Variables → add `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, and update `VITE_API_URL` if it changed → redeploy.
+6. **Supabase Auth → URL Configuration.** Set **Site URL** to the production Vercel domain, and add it (plus the Vercel preview pattern) to **Redirect URLs**. Needed for email confirmation links to land back on the right domain.
+
+Only after all of the above is verified working locally should `AUTH_MODE` move to `log` (phase 3), and only after that is clean for a few days should it move to `enforce` (phase 4). Don't jump straight to `enforce` before a demo.
 
 ## Goals
 

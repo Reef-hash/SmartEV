@@ -1,11 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchMaterials, fetchStock } from './api.js'
+import { hasRole, PAGE_ROLES } from './auth/permissions.js'
+import useAuth from './auth/useAuth.js'
 import { useInstallPrompt } from './hooks/useInstallPrompt.js'
 import { useRemoteData } from './hooks/useRemoteData.js'
+import LoginPage from './pages/auth/LoginPage.jsx'
+import PendingApprovalPage from './pages/auth/PendingApprovalPage.jsx'
+import SignUpPage from './pages/auth/SignUpPage.jsx'
 import RestockPage from './pages/RestockPage.jsx'
 import StockPage from './pages/StockPage.jsx'
 import TelegramPage from './pages/TelegramPage.jsx'
 import UsagePage from './pages/UsagePage.jsx'
+import UsersPage from './pages/UsersPage.jsx'
 import { THEMES } from './themes.js'
 
 const PAGES = [
@@ -13,7 +19,10 @@ const PAGES = [
   { id: 'restock', label: 'Restok', icon: '📦' },
   { id: 'stock', label: 'Senarai Stock', icon: '📋' },
   { id: 'telegram', label: 'Telegram Sender', icon: '✈️' },
+  { id: 'users', label: 'Pengguna', icon: '👤' },
 ]
+
+const ROLE_LABEL = { staff: 'Staff', storekeeper: 'Storekeeper', admin: 'Admin' }
 
 // The page lives in the URL hash (#usage, #restock, ...) so each page can be linked directly.
 function pageFromHash() {
@@ -26,14 +35,21 @@ function setHash(pageId) {
 }
 
 function App() {
+  const { session, profile, loading: authLoading, signOut } = useAuth()
   const [currentPage, setCurrentPage] = useState(pageFromHash)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [themeId, setThemeId] = useState('corporate')
+  const [authView, setAuthView] = useState('login')
   const menuRef = useRef(null)
 
   const materials = useRemoteData(fetchMaterials, [])
   const stock = useRemoteData(fetchStock, [])
   const installPrompt = useInstallPrompt()
+
+  const visiblePages = useMemo(
+    () => PAGES.filter((page) => hasRole(profile, PAGE_ROLES[page.id])),
+    [profile],
+  )
 
   const stockState = {
     stock: stock.data,
@@ -61,13 +77,60 @@ function App() {
     return () => document.removeEventListener('pointerdown', handleClickOutside)
   }, [])
 
+  // If a role change (or the hash) points at a page this account can't open, fall back to the first allowed one.
+  useEffect(() => {
+    if (visiblePages.length === 0) return
+    if (visiblePages.some((page) => page.id === currentPage)) return
+    const t = setTimeout(() => {
+      setHash(visiblePages[0].id)
+      setCurrentPage(visiblePages[0].id)
+    }, 0)
+    return () => clearTimeout(t)
+  }, [visiblePages, currentPage])
+
   const changePage = (pageId) => {
     setHash(pageId)
     setCurrentPage(pageId)
     setIsMenuOpen(false)
   }
 
-  const activePage = PAGES.find((page) => page.id === currentPage)
+  const activePage = visiblePages.find((page) => page.id === currentPage) ?? visiblePages[0]
+
+  if (authLoading) {
+    return (
+      <main className={`flex min-h-screen items-center justify-center ${activeTheme.shell}`}>
+        <p className="text-sm font-semibold text-slate-500">Memuat...</p>
+      </main>
+    )
+  }
+
+  if (!session) {
+    return (
+      <main className={`relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10 ${activeTheme.shell}`}>
+        <div className={`absolute -left-24 top-10 h-72 w-72 rounded-full blur-3xl ${activeTheme.orbA}`} />
+        <div className={`absolute right-0 top-0 h-80 w-80 rounded-full blur-3xl ${activeTheme.orbB}`} />
+        <div className="relative w-full">
+          {authView === 'login' ? (
+            <LoginPage theme={activeTheme} onSwitchToSignUp={() => setAuthView('signup')} />
+          ) : (
+            <SignUpPage theme={activeTheme} onSwitchToLogin={() => setAuthView('login')} />
+          )}
+        </div>
+      </main>
+    )
+  }
+
+  if (!profile || profile.status !== 'active') {
+    return (
+      <main className={`relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10 ${activeTheme.shell}`}>
+        <div className={`absolute -left-24 top-10 h-72 w-72 rounded-full blur-3xl ${activeTheme.orbA}`} />
+        <div className={`absolute right-0 top-0 h-80 w-80 rounded-full blur-3xl ${activeTheme.orbB}`} />
+        <div className="relative w-full">
+          <PendingApprovalPage theme={activeTheme} />
+        </div>
+      </main>
+    )
+  }
 
   return (
     <main className={`relative min-h-screen overflow-hidden px-4 py-6 sm:px-8 sm:py-10 ${activeTheme.shell}`}>
@@ -100,8 +163,12 @@ function App() {
             </button>
 
             {isMenuOpen && (
-              <nav className="absolute right-0 top-12 z-[100] w-60 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/20">
-                {PAGES.map((page) => (
+              <nav className="absolute right-0 top-12 z-[100] w-64 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/20">
+                <div className="border-b border-slate-100 px-4 py-3">
+                  <p className="truncate text-sm font-bold text-slate-900">{profile.full_name || profile.email}</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{ROLE_LABEL[profile.role] ?? profile.role}</p>
+                </div>
+                {visiblePages.map((page) => (
                   <button
                     key={page.id}
                     type="button"
@@ -115,6 +182,14 @@ function App() {
                     {page.label}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  onClick={signOut}
+                  className="flex w-full items-center gap-3 border-t border-slate-100 px-4 py-3.5 text-left text-sm font-semibold text-rose-600 transition hover:bg-rose-50"
+                >
+                  <span className="text-lg">🚪</span>
+                  Log Keluar
+                </button>
               </nav>
             )}
           </div>
@@ -167,6 +242,7 @@ function App() {
             materials={materials.data}
             isLoadingMaterials={materials.isLoading}
             onSubmitted={stock.reload}
+            defaultNama={profile.full_name}
           />
         </div>
         <div hidden={currentPage !== 'restock'}>
@@ -183,6 +259,11 @@ function App() {
         <div hidden={currentPage !== 'telegram'}>
           <TelegramPage theme={activeTheme} />
         </div>
+        {hasRole(profile, PAGE_ROLES.users) && (
+          <div hidden={currentPage !== 'users'}>
+            <UsersPage theme={activeTheme} />
+          </div>
+        )}
 
         {/* Theme switcher */}
         <div className="mt-8 flex flex-wrap justify-center gap-2">
